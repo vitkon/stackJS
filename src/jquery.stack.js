@@ -37,7 +37,7 @@
             debug: true,    //verbose info in the console
             raphaelUrl: 'http://cdnjs.cloudflare.com/ajax/libs/raphael/2.1.0/raphael-min.js',
             events: true, // listen to incoming events
-            version: '0.1',
+            version: '0.3',
             coefficient: 1,
             hasContainer: false
         };
@@ -49,6 +49,8 @@
 
         this.element = element; //jQuery element passed in
         this.$element = $(element);
+
+        this.options = {}; // clear prev options
 
         this.options = $.extend({}, defaults, options); // extend default options with user options
         this._defaults = defaults;
@@ -73,7 +75,11 @@
 
     // init stack library
     Stack.prototype.init = function () {
-        console.log(this);
+
+        // clear canvas before init
+        this.$element.trigger('stack:clear');
+
+        // if element is hidden, initialise only when it is shown
         if (this.$element.is(':visible') === false) {
             this.$element.attrchange({
                 trackValues: true,
@@ -83,25 +89,39 @@
             return false;
         }
 
-        console.log(this.$element);
+        var position = this.$element.offset(),
+            elementWidth = this.$element.outerWidth(),
+            elementHeight = this.$element.outerHeight();
 
-        this.posLeft = this.$element.position().left;
-        this.posTop = this.$element.position().top;
-        this.posWidth = this.$element.width();
-        this.posHeight = this.$element.height();
+        this.posLeft = position.left;
+        this.posTop = position.top;
+        this.posWidth = elementWidth;
+        this.posHeight = elementHeight;
 
         // warn if width or height are 0
         if (this.posHeight === 0 || this.posWidth === 0) {
             this.debugMessage('Element width or height are not set', 'warn');
         }
 
-        // Creates canvas with dimensions of the element, now we can draw!
-        this.paper = window.Raphael(this.posLeft, this.posTop, this.posWidth, this.posHeight);
+        if (!this.paper) {
+            // Creates canvas with dimensions of the element, now we can draw!
+            this.paper = window.Raphael(this.posLeft, this.posTop, this.posWidth, this.posHeight);
+        }
 
         // render all stacks in this.options.stacks
         this.render();
 
-        if (this.options.events) { this.listenToEvents(); }
+        if (!this.eventsAreSet && this.options.events) { this.listenToEvents(); }
+
+        if (this.$element.attr('data-percentage')) {
+            this.$element.trigger('stack:clear');
+            this.$element.trigger('stack:percentage', [0, 0, this.$element.attr('data-percentage')]);
+            this.$element.trigger('stack:render');
+        }
+
+        this.$element.removeAttr('data-percentage');
+
+        this.debugMessage('init completed');
 
     };
 
@@ -144,15 +164,14 @@
             topEllipse = this.totalPercentage + options.percentage - 1,
             fillColor = options.primaryColor,
             strokeColor = options.strokeColor || options.primaryColor,
-            ellipse;
+            ellipse,
+            total = this.totalPercentage * this.options.coefficient;
 
         ellipse = this.paper.ellipse(
             baseX, baseY - i, baseWidth, baseHeight
         );
 
-        console.log(i, topEllipse * this.options.coefficient);
-
-        if (i === Math.floor(topEllipse * this.options.coefficient)) {
+        if (i === Math.floor(total + options.percentage * this.options.coefficient - 1)) {
             fillColor = options.secondaryColor || options.primaryColor;
             strokeColor = options.strokeColor || options.secondaryColor || options.primaryColor;
         }
@@ -164,16 +183,35 @@
     };
 
     Stack.prototype.listenToEvents = function () {
-        // sample animate event
-        // trigger it like so: $('#block').trigger('stack:animate', [0, 100]);
-        this.$element.on('stack:animate', function (event, start, stop) {
-            console.log('got it', start, stop, event);
-            console.log(this);
+        var self = this;
+
+        this.$element.on('stack:clear', function (event) {
+            event.stopPropagation();
+            event.preventDefault();
+            self.paper.clear();
+            this.debugMessage('canvas is clear');
         });
+
+        this.$element.on('stack:percentage', function (event, totalPercentage, stack, value) {
+            event.stopPropagation();
+            event.preventDefault();
+            self.totalPercentage = totalPercentage;
+            self.options.stacks[stack].percentage = value;
+            self.debugMessage('new percentage set: ' + value);
+        });
+
+        this.$element.on('stack:render', function (event, stack, value) {
+            event.stopPropagation();
+            event.preventDefault();
+            self.render();
+            self.debugMessage('chart is rendered');
+        });
+
+        self.eventsAreSet = true;
+
     };
 
     Stack.prototype.checkVisibility = function (e, context) {
-        console.log(this, context);
         if (e.attributeName === 'style') {
             if (e.newValue === 'display: inline-block;' || e.newValue === 'display: block;') {
                 //TODO: unbind attrchange plugin
@@ -181,9 +219,11 @@
                 context.init();
             } else if (e.newValue === 'display: none;') {
                 // hide chart with it's parent element
-                context.paper.forEach(function (el) {
-                    el.hide();
-                });
+                if (context.paper) {
+                    context.paper.forEach(function (el) {
+                        el.hide();
+                    });
+                }
 
             } else {
                 return false;
@@ -206,9 +246,9 @@
     // preventing against multiple instantiations
     $.fn[pluginName] = function (options) {
         return this.each(function () {
-            if (!$.data(this, 'plugin_' + pluginName)) {
-                $.data(this, 'plugin_' + pluginName, new Stack(this, options));
-            }
+            //if (!$.data(this, 'plugin_' + pluginName)) {
+            $.data(this, 'plugin_' + pluginName, new Stack(this, options));
+            //}
         });
     };
 
