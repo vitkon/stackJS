@@ -1,11 +1,11 @@
 stackJS
 =======
 
-StackJS is a jQuery plugin for visualisation visualising a simple stacked bar chart.
+StackJS is a jQuery plugin to visualise a simple stacked bar chart.
 
 
 Dependencies
-============
+------------
 
 jQuery
 Raphael
